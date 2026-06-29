@@ -1,0 +1,135 @@
+#!/usr/bin/env bash
+
+# author: Nick Popovic
+
+set -euo pipefail
+
+show_help() {
+  echo "Usage: tmuxload [-h]"
+  echo "Select and load a tmuxp session interactively."
+  echo ""
+  echo "Options:"
+  echo "  -h    Show this help message and exit"
+}
+
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  show_help
+  exit 0
+fi
+
+# Ensure tmuxp is installed.
+if ! command -v tmuxp >/dev/null 2>&1; then
+  echo "Error: tmuxp is not installed or not in PATH." >&2
+  exit 1
+fi
+
+# Directory where tmuxp config files are stored.
+#
+# By default, tmuxp commonly uses:
+#   ~/.config/tmuxp
+#
+# You can override this when running the command:
+#   TMUXP_CONFIG_DIR=~/dotfiles/tmuxp tmuxload
+CONFIG_DIR="${TMUXP_CONFIG_DIR:-$HOME/.config/tmuxp}"
+
+# Ensure the config directory exists before trying to search it.
+if [ ! -d "$CONFIG_DIR" ]; then
+  echo "tmuxp config directory does not exist:"
+  echo "  $CONFIG_DIR"
+  exit 1
+fi
+
+# Find all supported tmuxp config files in the config directory.
+#
+# Only search one level deep because tmuxp configs are typically placed
+# directly inside ~/.config/tmuxp.
+#
+# Example files:
+#   ~/.config/tmuxp/CUSTOM_SESSION.yaml
+#   ~/.config/tmuxp/blog.yml
+#   ~/.config/tmuxp/work.json
+mapfile -t config_files < <(
+  find "$CONFIG_DIR" -maxdepth 1 -type f \
+    \( -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) \
+    -printf '%f\n' |
+    sort
+)
+
+# Stop early if no configs were found.
+if [ "${#config_files[@]}" -eq 0 ]; then
+  echo "No tmuxp configs found in:"
+  echo "  $CONFIG_DIR"
+  exit 1
+fi
+
+# Convert filenames into tmuxp config names.
+#
+# tmuxp lets you load configs by basename, so:
+#
+#   ~/.config/tmuxp/CUSTOM_SESSION.yaml
+#
+# can be loaded with:
+#
+#   tmuxp load CUSTOM_SESSION
+#
+# This strips the file extension from each config filename.
+session_names=()
+display_names=()
+
+# Get a list of currently running tmux sessions.
+active_sessions=$(tmux ls -F '#{session_name}' 2>/dev/null || true)
+
+for file in "${config_files[@]}"; do
+  session_name="${file%.*}"
+  session_names+=("$session_name")
+
+  # Annotate the name if the session is currently running.
+  if echo "$active_sessions" | grep -Fxq "$session_name"; then
+    display_names+=("$session_name (active)")
+  else
+    display_names+=("$session_name")
+  fi
+done
+
+# Ask the user which session to load.
+#
+# Prefer fzf when available because it gives a better interactive search UI.
+# Fall back to Bash's built-in select menu when fzf is unavailable.
+selected_session=""
+
+if command -v fzf >/dev/null 2>&1; then
+  selected_session="$(
+    printf '%s\n' "${display_names[@]}" |
+      fzf --height 40% --layout=reverse --prompt="tmux session> "
+  )"
+else
+  echo "Choose a tmuxp session:"
+
+  select selected_session in "${display_names[@]}"; do
+    # If the user typed a valid number, selected_session will be non-empty.
+    if [ -n "${selected_session:-}" ]; then
+      break
+    fi
+
+    echo "Invalid selection."
+  done
+fi
+
+# If the user cancelled the picker, exit without doing anything.
+#
+# In fzf, this happens when pressing Escape or Ctrl-C.
+if [ -z "${selected_session:-}" ]; then
+  echo "No session selected."
+  exit 0
+fi
+
+# Strip the " (active)" annotation if it exists.
+selected_session="${selected_session% (active)}"
+
+# Load the selected tmuxp session.
+#
+# The -y flag skips tmuxp's confirmation prompt.
+#
+# Example:
+#   tmuxp load -y CUSTOM_SESSION
+tmuxp load -y "$selected_session"
