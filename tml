@@ -5,7 +5,7 @@
 set -euo pipefail
 
 show_help() {
-  echo "Usage: tmuxload [-h]"
+  echo "Usage: tml [-h]"
   echo "Select and load a tmuxp session interactively."
   echo ""
   echo "Options:"
@@ -29,7 +29,7 @@ fi
 #   ~/.config/tmuxp
 #
 # You can override this when running the command:
-#   TMUXP_CONFIG_DIR=~/dotfiles/tmuxp tmuxload
+#   TMUXP_CONFIG_DIR=~/dotfiles/tmuxp tml
 CONFIG_DIR="${TMUXP_CONFIG_DIR:-$HOME/.config/tmuxp}"
 
 # Ensure the config directory exists before trying to search it.
